@@ -1,0 +1,16 @@
+path: /root/autodl-tmp/yolov11-drone-inspection/data/visdrone-det-person9
+train: images/train
+val: images/val
+test: images/test
+
+nc: 9
+names:
+  0: person
+  1: bicycle
+  2: car
+  3: van
+  4: truck
+  5: tricycle
+  6: awning-tricycle
+  7: bus
+  8: motor
