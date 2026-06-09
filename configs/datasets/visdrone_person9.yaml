@@ -1,8 +1,6 @@
 path: /root/autodl-tmp/yolov11-drone-inspection/data/visdrone-det-person9
 train: images/train
 val: images/val
-test: images/test
-
 nc: 9
 names:
   0: person

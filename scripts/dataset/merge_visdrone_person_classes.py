@@ -149,13 +149,31 @@ def write_label_file(src_label: Path, dst_label: Path, split: str, stats: Counte
     stats["objects"] += len(remapped_lines)
 
 
+def detect_available_splits(src_root: Path, requested_splits: list[str]) -> list[str]:
+    available_splits: list[str] = []
+    missing_splits: list[str] = []
+    for split in requested_splits:
+        images_dir = src_root / "images" / split
+        labels_dir = src_root / "labels" / split
+        if images_dir.exists() and labels_dir.exists():
+            available_splits.append(split)
+        else:
+            missing_splits.append(split)
+
+    if not available_splits:
+        raise FileNotFoundError(
+            f"No valid splits found under {src_root}. Requested={requested_splits}, missing={missing_splits}"
+        )
+
+    if missing_splits:
+        print(f"[warn] skip missing splits: {', '.join(missing_splits)}")
+
+    return available_splits
+
+
 def process_split(src_root: Path, dst_root: Path, split: str, copy_images: bool) -> Counter:
     src_images_dir = src_root / "images" / split
     src_labels_dir = src_root / "labels" / split
-    if not src_images_dir.exists():
-        raise FileNotFoundError(f"Missing images split directory: {src_images_dir}")
-    if not src_labels_dir.exists():
-        raise FileNotFoundError(f"Missing labels split directory: {src_labels_dir}")
 
     dst_images_dir = dst_root / "images" / split
     dst_labels_dir = dst_root / "labels" / split
@@ -176,17 +194,22 @@ def process_split(src_root: Path, dst_root: Path, split: str, copy_images: bool)
     return stats
 
 
-def write_dataset_yaml(dst_root: Path) -> Path:
+def write_dataset_yaml(dst_root: Path, available_splits: list[str]) -> Path:
     yaml_path = dst_root / "visdrone_person9.yaml"
-    lines = [
-        f"path: {dst_root.resolve().as_posix()}",
-        "train: images/train",
-        "val: images/val",
-        "test: images/test",
+    lines = [f"path: {dst_root.resolve().as_posix()}"]
+
+    if "train" in available_splits:
+        lines.append("train: images/train")
+    if "val" in available_splits:
+        lines.append("val: images/val")
+    if "test" in available_splits:
+        lines.append("test: images/test")
+
+    lines.extend([
         "",
         f"nc: {len(TARGET_NAMES)}",
         "names:",
-    ]
+    ])
     lines.extend(f"  {idx}: {name}" for idx, name in enumerate(TARGET_NAMES))
     yaml_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return yaml_path
@@ -228,11 +251,13 @@ def main() -> None:
     elif (src_root / "raw" / "images").exists() and (src_root / "raw" / "labels").exists():
         actual_src_root = src_root / "raw"
 
+    available_splits = detect_available_splits(actual_src_root, args.splits)
+
     all_stats: dict[str, Counter] = {}
-    for split in args.splits:
+    for split in available_splits:
         all_stats[split] = process_split(actual_src_root, dst_root, split, args.copy_images)
 
-    yaml_path = write_dataset_yaml(dst_root)
+    yaml_path = write_dataset_yaml(dst_root, available_splits)
     print_summary(all_stats, yaml_path)
 
 
