@@ -96,6 +96,29 @@ def resolve_source_subdir(root: Path, name: str) -> Path:
     raise FileNotFoundError(f"Cannot find required directory: {root / name} or {root / 'raw' / name}")
 
 
+def resolve_dataset_root(src_root: Path) -> Path:
+    candidates = [
+        src_root,
+        src_root / "raw",
+        src_root / "raw" / "VisDrone2019-DET",
+    ]
+
+    for candidate in candidates:
+        if (candidate / "images").exists() and (candidate / "labels").exists():
+            return candidate
+
+    raw_dir = src_root / "raw"
+    if raw_dir.exists():
+        for candidate in sorted(path for path in raw_dir.iterdir() if path.is_dir()):
+            if (candidate / "images").exists() and (candidate / "labels").exists():
+                return candidate
+
+    raise FileNotFoundError(
+        "Cannot resolve dataset root with images/ and labels/ under "
+        f"{src_root}. Checked: {', '.join(str(path) for path in candidates)}"
+    )
+
+
 def hardlink_or_copy(src: Path, dst: Path, copy_images: bool) -> None:
     if dst.exists():
         dst.unlink()
@@ -215,8 +238,9 @@ def write_dataset_yaml(dst_root: Path, available_splits: list[str]) -> Path:
     return yaml_path
 
 
-def print_summary(all_stats: dict[str, Counter], yaml_path: Path) -> None:
+def print_summary(all_stats: dict[str, Counter], yaml_path: Path, actual_src_root: Path) -> None:
     print("[done] generated derived dataset: person9")
+    print(f"[done] source dataset root: {actual_src_root}")
     print(f"[done] dataset yaml: {yaml_path}")
     print("[class-map] 0(pedestrian) + 1(people) -> 0(person)")
     print("[class-map] 2..9 -> 1..8")
@@ -238,19 +262,11 @@ def main() -> None:
     if not src_root.exists():
         raise FileNotFoundError(f"Source dataset root not found: {src_root}")
 
-    resolve_source_subdir(src_root, "images")
-    resolve_source_subdir(src_root, "labels")
-
     if args.overwrite and dst_root.exists():
         shutil.rmtree(dst_root)
     ensure_dir(dst_root)
 
-    actual_src_root = src_root
-    if (src_root / "images").exists() and (src_root / "labels").exists():
-        actual_src_root = src_root
-    elif (src_root / "raw" / "images").exists() and (src_root / "raw" / "labels").exists():
-        actual_src_root = src_root / "raw"
-
+    actual_src_root = resolve_dataset_root(src_root)
     available_splits = detect_available_splits(actual_src_root, args.splits)
 
     all_stats: dict[str, Counter] = {}
@@ -258,7 +274,7 @@ def main() -> None:
         all_stats[split] = process_split(actual_src_root, dst_root, split, args.copy_images)
 
     yaml_path = write_dataset_yaml(dst_root, available_splits)
-    print_summary(all_stats, yaml_path)
+    print_summary(all_stats, yaml_path, actual_src_root)
 
 
 if __name__ == "__main__":
