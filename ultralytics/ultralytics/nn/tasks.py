@@ -44,6 +44,7 @@ from ultralytics.nn.modules import (
     Conv,
     Conv2,
     ConvTranspose,
+    LWFusion,
     Detect,
     DWConv,
     DWConvTranspose2d,
@@ -1778,6 +1779,13 @@ def parse_model(d, ch, verbose=True):
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
+        elif m is LWFusion:
+            c1 = ch[f[0]]
+            c2 = args[0]
+            n_inputs = len(f)
+            if c2 != nc:
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, c2, n_inputs, *args[1:]]
         elif m in frozenset(
             {
                 Detect,

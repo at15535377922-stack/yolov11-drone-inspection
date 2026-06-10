@@ -641,6 +641,48 @@ class Concat(nn.Module):
         return torch.cat(x, self.d)
 
 
+class LWFusion(nn.Module):
+    """Lightweight normalized weighted fusion for same-shape multi-scale features.
+
+    The module learns one non-negative scalar weight per input branch and performs a
+    normalized weighted sum. A final 1x1 convolution mixes channels after fusion.
+    This keeps the fusion lightweight while allowing the model to suppress noisy
+    scales instead of concatenating all branches equally.
+    """
+
+    def __init__(self, c1, c2, n=2, eps=1e-4):
+        """Initialize lightweight weighted fusion.
+
+        Args:
+            c1 (int): Number of input channels for each branch.
+            c2 (int): Number of output channels after 1x1 mixing.
+            n (int): Number of input branches.
+            eps (float): Small constant to avoid division by zero.
+        """
+        super().__init__()
+        self.n = n
+        self.eps = eps
+        self.w = nn.Parameter(torch.ones(n, dtype=torch.float32))
+        self.mix = Conv(c1, c2, k=1, s=1)
+
+    def forward(self, x: list[torch.Tensor]):
+        """Fuse same-shape features with normalized learnable weights.
+
+        Args:
+            x (list[torch.Tensor]): Input feature list. All tensors must share the
+                same shape.
+
+        Returns:
+            (torch.Tensor): Weighted fused feature.
+        """
+        if len(x) != self.n:
+            raise ValueError(f"LWFusion expected {self.n} inputs, got {len(x)}")
+        w = torch.relu(self.w)
+        w = w / (w.sum() + self.eps)
+        fused = sum(w[i] * x[i] for i in range(self.n))
+        return self.mix(fused)
+
+
 class Index(nn.Module):
     """Returns a particular index of the input.
 
