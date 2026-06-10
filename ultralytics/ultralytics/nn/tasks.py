@@ -37,6 +37,8 @@ from ultralytics.nn.modules import (
     C3Ghost,
     C3k2,
     C3x,
+    CBAM,
+    CBAM,
     CBFuse,
     CBLinear,
     Classify,
@@ -1776,7 +1778,15 @@ def parse_model(d, ch, verbose=True):
         elif m is ResNetLayer:
             c2 = args[1] if args[3] else args[1] * 4
         elif m is torch.nn.BatchNorm2d:
-            args = [ch[f]]
+            args = BAM:
+            c1 = ch[f]
+            c2 = c1
+            args = [c1, *args]
+        elif m is C[ch[f]]
+        elif m is CBAM:
+            c1 = ch[f]
+            c2 = c1
+            args = [c1, *args]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
         elif m is LWFusion:
