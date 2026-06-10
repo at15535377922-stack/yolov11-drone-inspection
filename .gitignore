@@ -5,7 +5,8 @@ weights/*.pt
 weights/*.pth
 weights/*.onnx
 runs/
-logs/
+# logs/ — removed: experiment MD docs under logs/ should be version-controlled
+#         Raw *.log files are already excluded by the *.log rule above.
 results/
 experiments/
 *.log
