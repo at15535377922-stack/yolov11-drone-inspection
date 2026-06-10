@@ -642,45 +642,50 @@ class Concat(nn.Module):
 
 
 class LWFusion(nn.Module):
-    """Lightweight normalized weighted fusion for same-shape multi-scale features.
+    """Lightweight normalized weighted fusion for multi-scale features.
 
-    The module learns one non-negative scalar weight per input branch and performs a
-    normalized weighted sum. A final 1x1 convolution mixes channels after fusion.
-    This keeps the fusion lightweight while allowing the model to suppress noisy
-    scales instead of concatenating all branches equally.
+    Each branch is first projected to the same output channel width with a 1x1
+    convolution, then fused by normalized learnable scalar weights. This keeps
+    the module lightweight while avoiding the channel explosion introduced by
+    concatenation.
     """
 
     def __init__(self, c1, c2, n=2, eps=1e-4):
         """Initialize lightweight weighted fusion.
 
         Args:
-            c1 (int): Number of input channels for each branch.
-            c2 (int): Number of output channels after 1x1 mixing.
+            c1 (list[int] | tuple[int] | int): Input channels for each branch.
+            c2 (int): Unified output channels after per-branch projection.
             n (int): Number of input branches.
             eps (float): Small constant to avoid division by zero.
         """
         super().__init__()
+        if isinstance(c1, int):
+            c1 = [c1] * n
+        if len(c1) != n:
+            raise ValueError(f"LWFusion expected {n} input channel specs, got {len(c1)}")
         self.n = n
         self.eps = eps
         self.w = nn.Parameter(torch.ones(n, dtype=torch.float32))
-        self.mix = Conv(c1, c2, k=1, s=1)
+        self.align = nn.ModuleList(Conv(cin, c2, k=1, s=1) for cin in c1)
 
     def forward(self, x: list[torch.Tensor]):
-        """Fuse same-shape features with normalized learnable weights.
+        """Fuse same-resolution features with normalized learnable weights.
 
         Args:
             x (list[torch.Tensor]): Input feature list. All tensors must share the
-                same shape.
+                same spatial shape; channel counts may differ.
 
         Returns:
-            (torch.Tensor): Weighted fused feature.
+            (torch.Tensor): Weighted fused feature with unified channel width.
         """
         if len(x) != self.n:
             raise ValueError(f"LWFusion expected {self.n} inputs, got {len(x)}")
+        x = [proj(feat) for proj, feat in zip(self.align, x)]
         w = torch.relu(self.w)
         w = w / (w.sum() + self.eps)
         fused = sum(w[i] * x[i] for i in range(self.n))
-        return self.mix(fused)
+        return fused
 
 
 class Index(nn.Module):

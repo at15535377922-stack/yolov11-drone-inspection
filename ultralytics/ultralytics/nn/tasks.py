@@ -1780,7 +1780,7 @@ def parse_model(d, ch, verbose=True):
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
         elif m is LWFusion:
-            c1 = ch[f[0]]
+            c1 = [ch[x] for x in f]
             c2 = args[0]
             n_inputs = len(f)
             if c2 != nc:
