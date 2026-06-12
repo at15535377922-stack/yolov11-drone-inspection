@@ -103,6 +103,9 @@ box: 7.5 # (float) box loss gain
 cls: 0.5 # (float) classification loss gain
 cls_pw: 0.0 # (float) class weights power for handling class imbalance (0.0=disable, 1.0=full inverse frequency)
 dfl: 1.5 # (float) distribution focal loss gain
+nwd_weight: 0.0 # (float) NWD loss weight beta; 0.0=disabled (pure CIoU), 0.4 recommended for small-object tasks
+nwd_constant: 12.8 # (float) NWD normalisation constant C (= imgsz * 0.02, e.g. 640*0.02=12.8)
+nwd_small_rho: 0.5 # (float) small-object up-weighting scale rho; 0.0=disabled
 pose: 12.0 # (float) pose loss gain (pose tasks)
 kobj: 1.0 # (float) keypoint objectness loss gain (pose tasks)
 rle: 1.0 # (float) rle loss gain (pose tasks)
