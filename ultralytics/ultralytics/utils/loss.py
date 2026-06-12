@@ -108,12 +108,74 @@ class DFLoss(nn.Module):
 
 
 class BboxLoss(nn.Module):
-    """Criterion class for computing training losses for bounding boxes."""
+    """Criterion class for computing training losses for bounding boxes.
 
-    def __init__(self, reg_max: int = 16):
-        """Initialize the BboxLoss module with regularization maximum and DFL settings."""
+    Supports optional NWD (Normalized Wasserstein Distance) term and small-object
+    weighting for improved small-target localization.
+    """
+
+    def __init__(self, reg_max: int = 16, nwd_weight: float = 0.0, nwd_constant: float = 12.8, nwd_small_rho: float = 0.5):
+        """Initialize the BboxLoss module.
+
+        Args:
+            reg_max (int): DFL regularization maximum.
+            nwd_weight (float): Weight for NWD term in combined box loss. 0.0 disables NWD (default).
+            nwd_constant (float): Normalisation constant C for NWD. Typical value: image_size * 0.02.
+            nwd_small_rho (float): Scale factor rho for small-object weighting. 0.0 disables weighting.
+        """
         super().__init__()
         self.dfl_loss = DFLoss(reg_max) if reg_max > 1 else None
+        self.nwd_weight = nwd_weight          # 0 → pure IoU (original behaviour)
+        self.nwd_constant = nwd_constant
+        self.nwd_small_rho = nwd_small_rho
+
+    @staticmethod
+    def _nwd(pred_boxes: torch.Tensor, target_boxes: torch.Tensor, C: float = 12.8) -> torch.Tensor:
+        """Compute Normalised Wasserstein Distance similarity for xyxy boxes.
+
+        Args:
+            pred_boxes:   (N, 4) xyxy
+            target_boxes: (N, 4) xyxy
+            C (float): Normalisation constant (image_size * 0.02 is a common choice).
+
+        Returns:
+            (N,) NWD similarity in [0, 1].
+        """
+        # convert xyxy -> cx, cy, w, h
+        pw = pred_boxes[:, 2] - pred_boxes[:, 0]
+        ph = pred_boxes[:, 3] - pred_boxes[:, 1]
+        pcx = pred_boxes[:, 0] + 0.5 * pw
+        pcy = pred_boxes[:, 1] + 0.5 * ph
+
+        gw = target_boxes[:, 2] - target_boxes[:, 0]
+        gh = target_boxes[:, 3] - target_boxes[:, 1]
+        gcx = target_boxes[:, 0] + 0.5 * gw
+        gcy = target_boxes[:, 1] + 0.5 * gh
+
+        d = ((pcx - gcx) ** 2 + (pcy - gcy) ** 2
+             + ((pw - gw) ** 2 + (ph - gh) ** 2) / 4.0).clamp(min=0.0).sqrt()
+        return torch.exp(-d / (C + 1e-7))
+
+    @staticmethod
+    def _small_weight(target_boxes: torch.Tensor, rho: float = 0.5) -> torch.Tensor:
+        """Compute per-box small-object weight based on normalised box area.
+
+        Boxes are assumed to be in the same coordinate space as the anchor grid
+        (i.e. already divided by stride).  The weight is 1 for large boxes and
+        increases toward (1 + rho) for micro targets.
+
+        Args:
+            target_boxes: (N, 4) xyxy in stride-normalised space.
+            rho (float): Maximum extra weight added to tiny boxes.
+
+        Returns:
+            (N, 1) weight tensor.
+        """
+        w = (target_boxes[:, 2] - target_boxes[:, 0]).clamp(min=0.0)
+        h = (target_boxes[:, 3] - target_boxes[:, 1]).clamp(min=0.0)
+        area = w * h                          # stride-normalised area
+        small_w = 1.0 + rho * torch.exp(-area / (area.mean() + 1e-6))
+        return small_w.unsqueeze(-1)          # (N, 1)
 
     def forward(
         self,
@@ -127,12 +189,38 @@ class BboxLoss(nn.Module):
         imgsz: torch.Tensor,
         stride: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute IoU and DFL losses for bounding boxes."""
-        weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
-        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
-        loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
+        """Compute IoU (+ optional NWD) and DFL losses for bounding boxes."""
+        weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)  # (N, 1)
 
-        # DFL loss
+        pb = pred_bboxes[fg_mask]    # (N, 4)
+        tb = target_bboxes[fg_mask]  # (N, 4)
+
+        iou = bbox_iou(pb, tb, xywh=False, CIoU=True)  # (N, 1)
+
+        if self.nwd_weight > 0.0:
+            # NWD needs pixel-space boxes.
+            # stride shape is (total_anchors, 1); fg_mask is (batch, anchors) or (N_anchors,)
+            # pb / tb are already (N, 4) after fg_mask indexing, so we need matching (N, 1) strides.
+            if stride.numel() > 1:
+                s = stride.reshape(-1, 1)[fg_mask.reshape(-1)]  # (N, 1)
+            else:
+                s = stride  # scalar / single-element tensor
+            pb_px = pb * s
+            tb_px = tb * s
+            nwd = self._nwd(pb_px, tb_px, C=self.nwd_constant).unsqueeze(-1)  # (N, 1)
+
+            alpha = 1.0 - self.nwd_weight
+            combined = alpha * (1.0 - iou) + self.nwd_weight * (1.0 - nwd)
+
+            if self.nwd_small_rho > 0.0:
+                sw = self._small_weight(tb, rho=self.nwd_small_rho)
+                combined = combined * sw
+
+            loss_iou = (combined * weight).sum() / target_scores_sum
+        else:
+            loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
+
+        # DFL loss (unchanged)
         if self.dfl_loss:
             target_ltrb = bbox2dist(anchor_points, target_bboxes, self.dfl_loss.reg_max - 1)
             loss_dfl = self.dfl_loss(pred_dist[fg_mask].view(-1, self.dfl_loss.reg_max), target_ltrb[fg_mask]) * weight
@@ -365,7 +453,12 @@ class v8DetectionLoss:
             stride=self.stride.tolist(),
             topk2=tal_topk2,
         )
-        self.bbox_loss = BboxLoss(m.reg_max).to(device)
+        self.bbox_loss = BboxLoss(
+            m.reg_max,
+            nwd_weight=float(getattr(h, "nwd_weight", 0.0)),
+            nwd_constant=float(getattr(h, "nwd_constant", 12.8)),
+            nwd_small_rho=float(getattr(h, "nwd_small_rho", 0.5)),
+        ).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
