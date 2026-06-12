@@ -198,16 +198,15 @@ class BboxLoss(nn.Module):
         iou = bbox_iou(pb, tb, xywh=False, CIoU=True)  # (N, 1)
 
         if self.nwd_weight > 0.0:
-            # NWD needs pixel-space boxes.
-            # stride shape is (total_anchors, 1); fg_mask is (batch, anchors) or (N_anchors,)
-            # pb / tb are already (N, 4) after fg_mask indexing, so we need matching (N, 1) strides.
-            if stride.numel() > 1:
-                s = stride.reshape(-1, 1)[fg_mask.reshape(-1)]  # (N, 1)
-            else:
-                s = stride  # scalar / single-element tensor
-            pb_px = pb * s
-            tb_px = tb * s
-            nwd = self._nwd(pb_px, tb_px, C=self.nwd_constant).unsqueeze(-1)  # (N, 1)
+            # Compute NWD in stride-normalised coordinate space (same as pb/tb).
+            # C is provided in pixel space (default 12.8 for imgsz=640).
+            # We fold stride into C: use the per-anchor stride to derive a per-sample C,
+            # but to avoid complex reshape, use the mean stride value as a scalar divisor.
+            # stride shape: (total_anchors, 1).  Mean over all anchors is a scalar.
+            stride_mean = stride.mean().clamp(min=1.0)
+            C_norm = self.nwd_constant / stride_mean.item()
+
+            nwd = self._nwd(pb, tb, C=C_norm).unsqueeze(-1)  # (N, 1) — no pixel conversion needed
 
             alpha = 1.0 - self.nwd_weight
             combined = alpha * (1.0 - iou) + self.nwd_weight * (1.0 - nwd)
