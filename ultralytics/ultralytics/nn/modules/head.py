@@ -27,7 +27,6 @@ __all__ = (
     "Pose",
     "RTDETRDecoder",
     "Segment",
-    "SemanticSegment",
     "TADetect",
     "YOLOEDetect",
     "YOLOESegment",
