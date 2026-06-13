@@ -27,10 +27,17 @@ RUN_NAME="visdrone10_exp06_tahead"
 
 cd "${PROJECT_ROOT}"
 source venv/bin/activate
-cd ultralytics
 
-# 清除 Python 字节码缓存，防止旧 .pyc 文件掩盖最新代码修改
-find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+# 清除整个项目下所有 Python 字节码缓存（从项目根执行，覆盖所有子目录）
+echo "Clearing pycache..."
+find "${PROJECT_ROOT}" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+find "${PROJECT_ROOT}" -name "*.pyc" -delete 2>/dev/null || true
+
+# 重新安装 ultralytics 源码包，确保 venv 里的入口指向最新代码
+echo "Reinstalling ultralytics from source..."
+pip install -e "${PROJECT_ROOT}/ultralytics" -q
+
+cd "${PROJECT_ROOT}/ultralytics"
 
 # 验证 TADetect 能正常导入，并打印加载路径
 python -c "
@@ -38,6 +45,10 @@ from ultralytics.nn.modules.head import TADetect
 import inspect, sys
 print('[CHECK] TADetect loaded from:', inspect.getfile(TADetect))
 print('[CHECK] __init__ sig:', inspect.signature(TADetect.__init__))
+sig = inspect.signature(TADetect.__init__)
+params = list(sig.parameters.keys())
+assert params == ['self', 'nc', 'reg_max', 'ta_layers', 'ch'], f'WRONG sig params: {params}'
+print('[CHECK] signature OK')
 "
 
 echo "=============================================="
