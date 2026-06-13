@@ -89,6 +89,7 @@ from .head import (
     Segment,
     Segment26,
     SemanticSegment,
+    TADetect,
     WorldDetect,
     YOLOEDetect,
     YOLOESegment,
@@ -190,5 +191,6 @@ __all__ = (
     "YOLOEDetect",
     "YOLOESegment",
     "YOLOESegment26",
+    "TADetect",
     "v10Detect",
 )

@@ -47,7 +47,7 @@ yolo detect train \
     workers=8 \
     project="${RUN_DIR}" \
     name="${RUN_NAME}" \
-    exist_ok=False \
+    exist_ok=True \
     cache=False \
     nwd_weight=0.4 \
     nwd_constant=12.8 \

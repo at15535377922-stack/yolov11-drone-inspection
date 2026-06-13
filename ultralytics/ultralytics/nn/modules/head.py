@@ -28,6 +28,7 @@ __all__ = (
     "RTDETRDecoder",
     "Segment",
     "SemanticSegment",
+    "TADetect",
     "YOLOEDetect",
     "YOLOESegment",
     "v10Detect",
@@ -1810,7 +1811,103 @@ class v10Detect(Detect):
         self.cv2 = self.cv3 = None
 
 
-class SemanticSegment(nn.Module):
+class TADetect(Detect):
+    """Task-Aligned Detection head for small-object layers (P2/P3).
+
+    Adds lightweight bidirectional interaction between the classification branch (cv3)
+    and the regression branch (cv2) on the first `ta_layers` scales (typically P2 and P3).
+    The remaining scales run the standard Detect forward path unchanged.
+
+    Interaction (per TA layer):
+        F_cls' = F_cls  * Spatial_Attention(F_reg_feat)   # reg guides cls
+        F_reg' = F_reg  * Channel_Attention(F_cls_feat)   # cls guides reg
+
+    where F_reg_feat / F_cls_feat are intermediate features before the final 1x1 conv.
+    """
+
+    def __init__(self, nc: int = 80, reg_max: int = 16, ta_layers: int = 2, ch: tuple = ()):
+        """Initialise TADetect.
+
+        Args:
+            nc (int): Number of classes.
+            reg_max (int): DFL channels.
+            ta_layers (int): Number of small-object scales (from the smallest) to apply task alignment.
+            ch (tuple): Input channel sizes for each detection scale.
+        """
+        super().__init__(nc=nc, reg_max=reg_max, ch=ch)
+        self.ta_layers = min(ta_layers, self.nl)
+        c2 = max(16, ch[0] // 4, reg_max * 4)  # box branch intermediate channels (same as Detect)
+        c3 = max(ch[0], min(nc, 100))           # cls branch intermediate channels (same as Detect)
+
+        # Spatial attention: summarise reg-branch features -> (B, 1, H, W) mask for cls
+        self.ta_spa = nn.ModuleList(
+            nn.Sequential(
+                nn.Conv2d(c2, 1, kernel_size=3, padding=1, bias=False),
+                nn.Sigmoid(),
+            )
+            for _ in range(self.ta_layers)
+        )
+        # Channel attention: summarise cls-branch features -> (B, c2, 1, 1) mask for reg
+        self.ta_cha = nn.ModuleList(
+            nn.Sequential(
+                nn.AdaptiveAvgPool2d(1),           # (B, c3, 1, 1)
+                nn.Conv2d(c3, c2, kernel_size=1, bias=False),
+                nn.Sigmoid(),
+            )
+            for _ in range(self.ta_layers)
+        )
+
+    def _ta_forward_one(self, xi, i):
+        """Forward for a single TA scale (index i)."""
+        box_branch = self.cv2[i]  # Sequential: [Conv, Conv, Conv2d]
+        cls_branch = self.cv3[i]  # Sequential: [DWConv+Conv, DWConv+Conv, Conv2d]
+
+        # ---- regression branch intermediate features ----
+        # cv2[i] = Sequential(Conv, Conv, nn.Conv2d)  -> first two sub-modules give intermediate
+        f_reg = box_branch[0](xi)   # after first Conv
+        f_reg = box_branch[1](f_reg)  # after second Conv  shape: (B, c2, H, W)
+
+        # ---- classification branch intermediate features ----
+        # cv3[i] = Sequential( seq0, seq1, nn.Conv2d ) where seq0/seq1 are DWConv+Conv pairs
+        f_cls = cls_branch[0](xi)   # after first pair
+        f_cls = cls_branch[1](f_cls)  # after second pair  shape: (B, c3, H, W)
+
+        # ---- bidirectional interaction ----
+        # regression guides classification (spatial)
+        spa_w = self.ta_spa[i](f_reg)          # (B, 1, H, W)
+        f_cls_aligned = f_cls * spa_w
+
+        # classification guides regression (channel)
+        cha_w = self.ta_cha[i](f_cls)          # (B, c2, 1, 1)
+        f_reg_aligned = f_reg * cha_w
+
+        # ---- final 1x1 projection ----
+        box_out = box_branch[2](f_reg_aligned)  # (B, 4*reg_max, H, W)
+        cls_out = cls_branch[2](f_cls_aligned)  # (B, nc, H, W)
+        return box_out, cls_out
+
+    def forward_head(
+        self, x: list, box_head: torch.nn.Module = None, cls_head: torch.nn.Module = None
+    ) -> dict:
+        """Forward with task-aligned interaction on small-object scales."""
+        if box_head is None or cls_head is None:
+            return dict()
+        bs = x[0].shape[0]
+        boxes_list, scores_list = [], []
+        for i in range(self.nl):
+            if i < self.ta_layers:
+                b, s = self._ta_forward_one(x[i], i)
+            else:
+                b = box_head[i](x[i])
+                s = cls_head[i](x[i])
+            boxes_list.append(b.view(bs, 4 * self.reg_max, -1))
+            scores_list.append(s.view(bs, self.nc, -1))
+        boxes = torch.cat(boxes_list, dim=-1)
+        scores = torch.cat(scores_list, dim=-1)
+        return dict(boxes=boxes, scores=scores, feats=x)
+
+
+
     """YOLO semantic segmentation head for per-pixel classification.
 
     This head produces dense per-pixel class predictions. Unlike instance segmentation, no bounding boxes or instance
