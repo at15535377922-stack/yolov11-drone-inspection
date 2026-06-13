@@ -29,6 +29,17 @@ cd "${PROJECT_ROOT}"
 source venv/bin/activate
 cd ultralytics
 
+# 清除 Python 字节码缓存，防止旧 .pyc 文件掩盖最新代码修改
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+# 验证 TADetect 能正常导入，并打印加载路径
+python -c "
+from ultralytics.nn.modules.head import TADetect
+import inspect, sys
+print('[CHECK] TADetect loaded from:', inspect.getfile(TADetect))
+print('[CHECK] __init__ sig:', inspect.signature(TADetect.__init__))
+"
+
 echo "=============================================="
 echo " EXP-06: Task-Aligned Detection Head (TADetect)"
 echo " Model  : ${MODEL_CFG}"
