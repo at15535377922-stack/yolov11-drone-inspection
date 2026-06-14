@@ -111,5 +111,5 @@
 | EXP-04 | 注意力增强消融 | 引入轻量通道-空间注意力（CBAM） | ✅ mAP50=0.332 |
 | EXP-05 | 损失函数消融 | CIoU + NWD 小目标损失 | ✅ mAP50=0.336 |
 | EXP-06 | 任务对齐检测头消融 | TADetect（P2/P3 cls/reg 双向交互） | ✅ mAP50=0.337 |
-| EXP-07 | ASE-YOLOv11 全量 | 所有改进叠加，完整模型 | ⬜ 待开始 |
+| EXP-07 | ASE-YOLOv11 全量集成 | P2+LWFusion+CBAM+TADetect+NWD 全量叠加 | 🔄 进行中 |
 | EXP-08 | MPID 迁移验证 | 绝缘子缺陷迁移验证（待数据就绪） | ⬜ 待数据 |
