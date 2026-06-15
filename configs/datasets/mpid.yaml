@@ -1,0 +1,24 @@
+# MPID 绝缘子数据集配置
+# 数据集：MPID (Merged Public Insulator Dataset)
+# 来源：https://zenodo.org/records/14604384
+# 版本：v1（2025-01-06）
+# 下载日期：2026-06-15
+# 许可：CC BY 4.0
+#
+# 类别说明（已核实 2026-06-15）：
+#   三个子集均为 nc=1，class id = 0，类别名不同（'1' / 'iso-su' / 'iso_poly'）
+#   含义相同（均为绝缘子），统一重命名为 insulator，class id 不变（0）
+#
+# 目录结构由 scripts/dataset/merge_mpid.sh 生成：
+#   data/mpid/merged/images/{train,val,test}/
+#   data/mpid/merged/labels/{train,val,test}/
+#   切分比例：80% train / 10% val / 10% test（随机切分，仅有 train 原始数据）
+
+path: /root/autodl-tmp/yolov11-drone-inspection/data/mpid/merged
+train: images/train
+val: images/val
+test: images/test
+
+nc: 1
+names:
+  0: insulator
