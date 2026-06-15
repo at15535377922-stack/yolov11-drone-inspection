@@ -124,6 +124,7 @@ def main():
     dataset_config["SPLIT_TO_EVAL"]   = "train"   # gt 子目录在 MOT/ 下
     dataset_config["SEQ_INFO"]        = {s: None for s in info["seq_names"]}
     dataset_config["DO_PREPROC"]      = False      # VisDrone 已是 MOT 格式，不需预处理
+    dataset_config["SKIP_SPLIT_FOL"]  = True       # 不在 gt_dir 下再套 train/ 子目录
 
     evaluator = trackeval.Evaluator(eval_config)
     dataset_list = [trackeval.datasets.MotChallenge2DBox(dataset_config)]
