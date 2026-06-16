@@ -68,15 +68,27 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 | **过滤类别** | **classes=0（仅 pedestrian，与 TrackEval 评估对齐）** |
 | 目的 | 与 09a 对比追踪器差异；classes=0 消除 FP 污染 |
 
-### EXP-09c（后续）：YOLOv11-MCTrack 自研方法
+### EXP-09c：YOLOv11-MCTrack 自研方法
 
-| 模块 | 说明 |
+**基础框架**：BoT-SORT（Ultralytics 内置），在此基础上针对无人机低空俯拍场景调整配置。
+
+| 创新模块 | 实现方式 | 对应配置 |
+|---|---|---|
+| ① GMC 相机运动补偿 | sparseOptFlow 稀疏光流估计帧间变换 | `gmc_method: sparseOptFlow` |
+| ② 双阈值降低 | 主阈值 0.15 / 辅阈值 0.05（默认 0.25/0.10）| `track_high_thresh: 0.15` |
+| ③ 轻量 ReID | 复用 ASE-YOLOv11 骨干特征嵌入，零额外参数 | `with_reid: True, model: auto` |
+| ④ 轨迹置信传播 | 融合检测置信度与 IoU 关联距离 | `fuse_score: True` |
+| ⑤ 遮挡记忆扩大 | track_buffer 从 30 扩至 60 帧 | `track_buffer: 60` |
+
+| 参数 | 值 |
 |---|---|
-| 相机运动补偿 | 帧间特征匹配估计单应性，补偿 Kalman 预测偏差 |
-| 双阈值关联 | 高置信度检测主匹配 + 低置信度遮挡补偿（ByteTrack 思路） |
-| 轻量 ReID | 轻量特征提取，遮挡/交叉场景降低 ID Switch |
-| 轨迹置信传播 | 融合检测置信度 + 轨迹连续性 → 轨迹置信度分数 |
-| 遮挡记忆 | 短时消失目标保留有限帧记忆 + 运动补偿重识别 |
+| 检测器 | ASE-YOLOv11（EXP-07 best.pt） |
+| 追踪器配置 | `configs/trackers/mctrack.yaml` |
+| 检测置信度阈值 | **0.10**（降低以提升行人召回） |
+| IoU 阈值 | 0.45 |
+| 输入分辨率 | 640 |
+| 过滤类别 | classes=0（pedestrian only，与 09b 统一评估口径） |
+| 脚本 | `scripts/tracking/run_track_exp09c_mctrack.sh` |
 
 ---
 
