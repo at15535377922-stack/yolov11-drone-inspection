@@ -1,0 +1,20 @@
+# VisDrone2019-DET - pedestrian 单类配置
+# 用途：EXP-09d 追踪前端专用检测器训练
+#
+# 说明：
+#   原始 VisDrone 标注中 class=0 为 pedestrian，class=1 为 people（遮挡行人）。
+#   追踪任务 TrackEval 默认评估 category=1（pedestrian），对应 VisDrone class=0。
+#   本配置仅保留 class=0（pedestrian），其余 9 类标注在训练时被 Ultralytics 自动忽略。
+#   这样训练出的检测器专注于 pedestrian 召回，作为追踪前端替换 EXP-07 的 10 类模型。
+#
+# 注意：标签文件不需要重新生成，Ultralytics 通过 nc=1 + classes=[0] 过滤其他类。
+# 但为保证正确，建议使用 scripts/dataset/filter_visdrone_ped.py 生成单类标签。
+
+path: /root/autodl-tmp/yolov11-drone-inspection/data/VisDrone2019-DET-ped
+train: images/train
+val:   images/val
+test:  images/test
+
+nc: 1
+names:
+  0: pedestrian
