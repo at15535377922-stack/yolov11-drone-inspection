@@ -136,28 +136,45 @@ def main():
 
     res, _ = evaluator.evaluate(dataset_list, metrics_list)
 
-    # 简洁汇总
+    # 简洁汇总 —— res 结构: res[tracker][dataset_name][seq_name][metric_name]
+    # dataset_name 通常为 "MotChallenge2DBox" 或直接按 seq 存储，需探测实际结构
+    tracker_res = res.get(args.tracker_name, {})
+    # 找到包含序列结果的那一层
+    combined = None
+    for _dataset_key, _dataset_val in tracker_res.items():
+        if isinstance(_dataset_val, dict):
+            for _cls_key, _cls_val in _dataset_val.items():
+                if isinstance(_cls_val, dict) and "COMBINED_SEQ" in _cls_val:
+                    combined = _cls_val
+                    break
+        if combined:
+            break
+
     summary = {}
-    for seq, seq_res in res[args.tracker_name]["MOT"]["COMBINED_SEQ"].items():
-        summary[seq] = {
-            "HOTA":  round(float(seq_res.get("HOTA", {}).get("HOTA", [0])[0]) * 100, 2),
-            "MOTA":  round(float(seq_res.get("CLEAR", {}).get("MOTA", 0)) * 100, 2),
-            "IDF1":  round(float(seq_res.get("Identity", {}).get("IDF1", 0)) * 100, 2),
-            "IDS":   int(seq_res.get("CLEAR", {}).get("IDSW", 0)),
-            "Frag":  int(seq_res.get("CLEAR", {}).get("Frag", 0)),
-        }
+    if combined:
+        for seq, seq_res in combined.items():
+            if not isinstance(seq_res, dict):
+                continue
+            hota_arr = seq_res.get("HOTA", {}).get("HOTA", [0])
+            hota_val = float(hota_arr[0]) if hasattr(hota_arr, '__len__') else float(hota_arr)
+            summary[seq] = {
+                "HOTA": round(hota_val * 100, 2),
+                "MOTA": round(float(seq_res.get("CLEAR", {}).get("MOTA", 0)) * 100, 2),
+                "IDF1": round(float(seq_res.get("Identity", {}).get("IDF1", 0)) * 100, 2),
+                "IDS":  int(seq_res.get("CLEAR", {}).get("IDSW", 0)),
+                "Frag": int(seq_res.get("CLEAR", {}).get("Frag", 0)),
+            }
 
     summary_path = os.path.join(args.output_dir, "summary.json")
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
     print(f"\n[INFO] 评估完成，摘要已保存到: {summary_path}")
 
-    # 打印总体结果
     overall = summary.get("COMBINED_SEQ", list(summary.values())[-1] if summary else {})
-    print("\n===== EXP-09a 追踪评估结果 =====")
+    print("\n===== EXP-09a 追踪评估结果（COMBINED）=====")
     for k, v in overall.items():
         print(f"  {k:8s}: {v}")
-    print("=================================")
+    print("============================================")
 
 
 if __name__ == "__main__":
