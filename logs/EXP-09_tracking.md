@@ -12,7 +12,7 @@
 | 下载日期 | 2026-06-15 |
 | 许可 | 学术使用 |
 | 服务器路径 | `/root/autodl-tmp/yolov11-drone-inspection/data/visdrone-mot/` |
-| 状态 | 🔄 进行中（09a ✅ / 09b ⬜ / 09c ⬜）|
+| 状态 | 🔄 进行中（09a ✅ / 09b ✅ / 09c ⬜）|
 
 ---
 
@@ -60,10 +60,13 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 
 | 参数 | 值 |
 |---|---|
-| 检测器 | 同 09a |
+| 检测器 | 同 09a（EXP-07 best.pt） |
 | 追踪器 | ByteTrack（Ultralytics 内置） |
-| 其余参数 | 同 09a |
-| 目的 | 与 09a 对比，选取更强基线 |
+| 检测置信度阈值 | 0.25 |
+| IoU 阈值 | 0.45 |
+| 输入分辨率 | 640 |
+| **过滤类别** | **classes=0（仅 pedestrian，与 TrackEval 评估对齐）** |
+| 目的 | 与 09a 对比追踪器差异；classes=0 消除 FP 污染 |
 
 ### EXP-09c（后续）：YOLOv11-MCTrack 自研方法
 
@@ -123,15 +126,50 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 > 导致非行人目标被当成 pedestrian 计入 FP。
 > 后续 EXP-09b 需在追踪前过滤仅保留 pedestrian（class=0）检测结果。
 
-### EXP-09b 结果（后续）
+### EXP-09b 结果（已完成 2026-06-16）
+
+> 评估集：VisDrone-MOT val（7 序列），仅评估 pedestrian 类。
+> 检测器 conf=0.25，IoU=0.45，输入分辨率 640，**classes=0（仅追踪 pedestrian）**。
+
+**COMBINED（7 序列平均）：**
 
 | 指标 | 值 |
 |---|---|
-| HOTA | — |
-| MOTA | — |
-| IDF1 | — |
-| ID Switch (IDS) | — |
-| Fragmentation (Frag) | — |
+| HOTA | **6.12** |
+| MOTA | **-9.52** |
+| IDF1 | **3.51** |
+| ID Switch (IDS) | **15652** |
+| Fragmentation (Frag) | **2277** |
+| DetA（检测关联精度） | 12.02 |
+| AssA（身份关联精度） | 3.23 |
+| LocA（定位精度） | 74.61 |
+| CLR_Re（召回） | 17.38% |
+| CLR_Pr（精度） | 56.87% |
+| MT（大多数时间追踪） | 53 / 758（7.0%）|
+| ML（大多数时间丢失） | 589 / 758（77.7%）|
+| 总检测框数 | 34,877 |
+| GT 框数 | 114,132 |
+| 总 ID 数（预测） | 187 |
+| GT ID 数 | 758 |
+
+**各序列 HOTA 明细：**
+
+| 序列 | HOTA | MOTA | IDF1 | IDS | Frag |
+|---|---|---|---|---|---|
+| uav0000086_00000_v | 8.21 | -9.43 | 5.79 | 9389 | 914 |
+| uav0000117_02622_v | 4.93 | -31.52 | 3.07 | 3255 | 504 |
+| uav0000137_00458_v | 5.35 | -4.71 | 2.72 | 1919 | 517 |
+| uav0000182_00000_v | 2.42 | -4.97 | 1.05 | 118 | 57 |
+| uav0000268_05773_v | 0.00 | -0.79 | 0.00 | 0 | 0 |
+| uav0000305_00000_v | 2.75 | -16.90 | 1.65 | 144 | 52 |
+| uav0000339_00001_v | 10.85 | -0.31 | 7.43 | 827 | 233 |
+| **COMBINED** | **6.12** | **-9.52** | **3.51** | **15652** | **2277** |
+
+> **注**：加入 `classes=0` 过滤后，FP 从 48,718 降至 15,043（↓69%），IDS 从 54,063 降至 15,652（↓71%），
+> MOTA 从 -32.51 改善至 -9.52。但 CLR_Re 从 57.55% 大幅下降至 17.38%，
+> 说明 ASE-YOLOv11（VisDrone 10 类训练）对 pedestrian 单类的召回率较低（DetA=12.02），
+> 导致漏检严重（ML=77.7%）。HOTA 反而低于 09a（6.12 vs 9.97），根本原因是 DetA 过低。
+> EXP-09c MCTrack 需重点提升 pedestrian 检测召回率或采用专项 pedestrian 检测器。
 
 ### EXP-09c YOLOv11-MCTrack 结果（后续）
 
@@ -147,9 +185,12 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 
 | 方法 | HOTA | MOTA | IDF1 | IDS | Frag |
 |---|---|---|---|---|---|
-| EXP-09a ASE + BoT-SORT | — | — | — | — | — |
-| EXP-09b ASE + ByteTrack | — | — | — | — | — |
+| EXP-09a ASE + BoT-SORT（全类） | 9.97 | -32.51 | 6.18 | 54,063 | 5,116 |
+| EXP-09b ASE + ByteTrack（pedestrian only） | 6.12 | -9.52 | 3.51 | 15,652 | 2,277 |
 | EXP-09c YOLOv11-MCTrack | — | — | — | — | — |
+
+> **说明**：09a 与 09b 不具备直接可比性（09a 全类追踪导致 FP 虚高，09b 单类追踪暴露召回不足）。
+> 后续 09c 统一采用 pedestrian only 评估，与 09b 形成公平对比。
 
 ---
 
@@ -201,11 +242,15 @@ cat runs/track/exp09a_botsort/eval/summary.json
 > **注意**：以下内容必须基于实际评估结果，禁止填写预期值。
 
 - [x] EXP-09a 完成，指标已记录（HOTA=9.97, MOTA=-32.51, IDF1=6.18）
-- [ ] EXP-09b 完成，指标已记录
+- [x] EXP-09b 完成，指标已记录（HOTA=6.12, MOTA=-9.52, IDF1=3.51）
 - [ ] EXP-09c（MCTrack）完成，指标已记录
 - [ ] 对比分析已完成
 
-**初步结论**（运行后填写）：
+**初步结论**（基于 09a/09b）：
+
+1. **评估对齐问题**：09a 全类追踪导致 MOTA 虚低（FP=48,718），09b 加 `classes=0` 后 FP 降至 15,043，MOTA 改善 22.99pp，但这是评估配置问题，非追踪器本身的差距。
+2. **核心瓶颈在检测**：09b 中 DetA=12.02，CLR_Re=17.38%，说明 ASE-YOLOv11 对 pedestrian 的单类召回率不足，漏检（ML=77.7%）是追踪失效的主因。
+3. **EXP-09c 方向**：MCTrack 需要同时改善 pedestrian 检测召回（可考虑针对 pedestrian 微调检测器）+ 相机运动补偿降低 IDS。
 
 ---
 
