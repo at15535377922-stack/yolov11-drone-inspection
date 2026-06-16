@@ -66,12 +66,14 @@ def convert(input_dir: str, output_path: str, seq_name: str,
                     continue
                 # Ultralytics track txt: track_id cx cy w h conf [cls]
                 # 注意：frame 信息编码在文件名中，不在行内
-                track_id = int(parts[0])
-                cx = float(parts[1])
-                cy = float(parts[2])
-                w  = float(parts[3])
-                h  = float(parts[4])
-                conf = float(parts[5]) if len(parts) > 5 else 1.0
+                # Ultralytics track save_txt 实际格式：cls cx cy w h track_id（共6列）
+                cls_id   = int(float(parts[0]))
+                cx       = float(parts[1])
+                cy       = float(parts[2])
+                w        = float(parts[3])
+                h        = float(parts[4])
+                track_id = int(float(parts[5])) if len(parts) > 5 else 0
+                conf     = 1.0  # save_txt 不含置信度，填 1.0
 
                 # 反归一化
                 bb_left  = (cx - w / 2) * img_w
