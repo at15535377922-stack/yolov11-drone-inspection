@@ -64,21 +64,15 @@ def convert(input_dir: str, output_path: str, seq_name: str,
                 parts = line.strip().split()
                 if len(parts) < 6:
                     continue
-                # Ultralytics track save_txt 格式（track 模式）：
-                #   track_id  cls  cx  cy  w  h  conf
-                # 共 7 列，track_id 在第 0 列，坐标从第 2 列开始
-                # 参考：ultralytics/engine/results.py  Results.save_txt()
-                if len(parts) >= 7:
-                    track_id = int(float(parts[0]))
-                    # cls = parts[1]  # 不使用
-                    cx   = float(parts[2])
-                    cy   = float(parts[3])
-                    w    = float(parts[4])
-                    h    = float(parts[5])
-                    conf = float(parts[6])
-                else:
-                    # 兼容旧格式（6 列：cls cx cy w h conf，无 track_id，跳过）
-                    continue
+                # Ultralytics track save_txt 实际格式：cls cx cy w h track_id（共6列）
+                # 注意：frame 信息编码在文件名中，不在行内
+                cls_id   = int(float(parts[0]))
+                cx       = float(parts[1])
+                cy       = float(parts[2])
+                w        = float(parts[3])
+                h        = float(parts[4])
+                track_id = int(float(parts[5])) if len(parts) > 5 else 0
+                conf     = 1.0  # save_txt 不含置信度，填 1.0
 
                 # 反归一化
                 bb_left  = (cx - w / 2) * img_w
