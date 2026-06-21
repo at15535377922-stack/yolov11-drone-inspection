@@ -19,7 +19,7 @@ visualize_compare.py
     python scripts/vis/visualize_compare.py \
         --image_dir data/VisDrone2019-DET/images/test \
         --n_sample  12 \
-        --weight_baseline runs/detect/visdrone10_baseline/yolo11n_640/weights/best.pt \
+        --weight_baseline runs/detect/visdrone10_yolo11n_baseline/weights/best.pt \
         --weight_exp06    runs/detect/visdrone10_exp06_tahead/weights/best.pt \
         --output_dir      results/vis_compare \
         --conf 0.25 --iou 0.45 --imgsz 640
