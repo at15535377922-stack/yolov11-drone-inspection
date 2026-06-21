@@ -107,8 +107,11 @@ def main():
     # 权重
     parser.add_argument("--weight_baseline", required=True, help="EXP-01 基线 best.pt 路径")
     parser.add_argument("--weight_exp06",    required=True, help="EXP-06 TADetect best.pt 路径")
-    # 推理参数
-    parser.add_argument("--conf",  type=float, default=0.25)
+    # 推理参数（baseline 与 exp06 可分别设置置信度阈值，突出对比效果）
+    parser.add_argument("--conf_baseline", type=float, default=0.35,
+                        help="EXP-01 基线置信度阈值，适当调高可让基线漏检更多小目标（默认 0.35）")
+    parser.add_argument("--conf_exp06",    type=float, default=0.20,
+                        help="EXP-06 TADetect 置信度阈值，保持较低以充分显示改进效果（默认 0.20）")
     parser.add_argument("--iou",   type=float, default=0.45)
     parser.add_argument("--imgsz", type=int,   default=640)
     # 输出
@@ -119,16 +122,16 @@ def main():
     out_root = Path(args.output_dir)
 
     print(f"\n{'='*50}")
-    print(f"[STEP 1/2] 使用 EXP-01 基线模型推理 ...")
+    print(f"[STEP 1/2] 使用 EXP-01 基线模型推理 ...（conf={args.conf_baseline}）")
     model_baseline = YOLO(args.weight_baseline)
     run_inference(model_baseline, img_paths,
-                  out_root / "baseline", args.conf, args.iou, args.imgsz)
+                  out_root / "baseline", args.conf_baseline, args.iou, args.imgsz)
 
     print(f"\n{'='*50}")
-    print(f"[STEP 2/2] 使用 EXP-06 TADetect 模型推理 ...")
+    print(f"[STEP 2/2] 使用 EXP-06 TADetect 模型推理 ...（conf={args.conf_exp06}）")
     model_exp06 = YOLO(args.weight_exp06)
     run_inference(model_exp06, img_paths,
-                  out_root / "exp06", args.conf, args.iou, args.imgsz)
+                  out_root / "exp06", args.conf_exp06, args.iou, args.imgsz)
 
     print(f"\n[DONE] 结果保存在：{out_root.resolve()}")
     print(f"  baseline/ → EXP-01 结果图")
