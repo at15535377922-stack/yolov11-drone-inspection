@@ -136,19 +136,20 @@ def main():
 
     res, _ = evaluator.evaluate(dataset_list, metrics_list)
 
-    # 简洁汇总 —— res 结构: res[tracker][dataset_name][seq_name][metric_name]
-    # dataset_name 通常为 "MotChallenge2DBox" 或直接按 seq 存储，需探测实际结构
-    tracker_res = res.get(args.tracker_name, {})
-    # 找到包含序列结果的那一层
+    # 实际结构: res[dataset_name][tracker_name][seq_name（含 'COMBINED_SEQ'）][cls_name][metric_family]
+    # 之前误以为顶层按 tracker_name 索引，导致 combined 恒为 None，summary 恒为空 {}。
     combined = None
-    for _dataset_key, _dataset_val in tracker_res.items():
-        if isinstance(_dataset_val, dict):
-            for _cls_key, _cls_val in _dataset_val.items():
-                if isinstance(_cls_val, dict) and "COMBINED_SEQ" in _cls_val:
-                    combined = _cls_val
-                    break
-        if combined:
-            break
+    for _dataset_val in res.values():
+        tracker_res = _dataset_val.get(args.tracker_name, {})
+        if not tracker_res:
+            continue
+        sample_seq = next(iter(tracker_res.values()), {})
+        cls_names = list(sample_seq.keys())
+        if not cls_names:
+            continue
+        cls_name = cls_names[0]  # 单类评估（如 pedestrian），取唯一类别
+        combined = {seq: seq_val[cls_name] for seq, seq_val in tracker_res.items()}
+        break
 
     summary = {}
     if combined:

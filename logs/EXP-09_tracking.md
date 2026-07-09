@@ -12,7 +12,7 @@
 | 下载日期 | 2026-06-15 |
 | 许可 | 学术使用 |
 | 服务器路径 | `/root/autodl-tmp/yolov11-drone-inspection/data/visdrone-mot/` |
-| 状态 | 🔄 进行中（09a ✅ / 09b ✅ / 09c ✅ / 09d ⬜ / 09e ⬜ / 09f ⬜）|
+| 状态 | 🔄 进行中（09a ✅ / 09b ✅ / 09c ✅ / 09d ✅ / 09e ✅ / 09f ⬜）|
 
 ---
 
@@ -297,19 +297,52 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 | Recall | — |
 | 训练轮数（实际停止于） | — |
 
-### EXP-09e 结果（待运行）
+### EXP-09e 结果（已完成 2026-07-09，评估脚本重跑修正后取得）
+
+> 评估集：VisDrone-MOT val（7 序列），pedestrian only。
+> 检测器：EXP-09d pedestrian 专用权重，conf=0.25，IoU=0.45，输入分辨率 640。追踪器：ByteTrack。
+> 注：`eval_trackeval.py` 此前存在结果解析 bug（误按 tracker_name 索引顶层，导致 summary.json 恒为空 `{}`），
+> 已修复；本结果取自 TrackEval 控制台原始输出（与 09a/b/c 早期人工誊抄口径一致）。
+
+**COMBINED（7 序列平均）：**
 
 | 指标 | 值 |
 |---|---|
-| HOTA | — |
-| MOTA | — |
-| IDF1 | — |
-| ID Switch (IDS) | — |
-| Fragmentation (Frag) | — |
-| DetA | — |
-| AssA | — |
-| CLR_Re | — |
-| CLR_Pr | — |
+| HOTA | **6.19** |
+| MOTA | **-12.61** |
+| IDF1 | **3.59** |
+| ID Switch (IDS) | **18208** |
+| Fragmentation (Frag) | **2410** |
+| DetA（检测关联精度） | 13.32 |
+| AssA（身份关联精度） | 3.01 |
+| LocA（定位精度） | 74.56 |
+| CLR_Re（召回） | 19.66% |
+| CLR_Pr（精度） | 54.65% |
+| MT（大多数时间追踪） | 64 / 758（8.4%）|
+| ML（大多数时间丢失） | 558 / 758（73.6%）|
+| 总检测框数 | 41,053 |
+| GT 框数 | 114,132 |
+| 总 ID 数（预测） | 226 |
+| GT ID 数 | 758 |
+
+**各序列 HOTA 明细：**
+
+| 序列 | HOTA | MOTA | IDF1 | IDS | Frag |
+|---|---|---|---|---|---|
+| uav0000086_00000_v | 7.97 | -16.05 | 5.40 | 10002 | 851 |
+| uav0000117_02622_v | 4.92 | -37.22 | 3.34 | 3881 | 497 |
+| uav0000137_00458_v | 5.42 | -5.53 | 2.90 | 2861 | 706 |
+| uav0000182_00000_v | 2.45 | -5.41 | 1.12 | 188 | 86 |
+| uav0000268_05773_v | 0.00 | -0.45 | 0.00 | 0 | 0 |
+| uav0000305_00000_v | 2.30 | -26.26 | 1.06 | 150 | 52 |
+| uav0000339_00001_v | 11.49 | -1.84 | 8.38 | 1126 | 218 |
+| **COMBINED** | **6.19** | **-12.61** | **3.59** | **18208** | **2410** |
+
+> **注**：相比 09b（10 类通用检测器过滤 pedestrian，CLR_Re=17.38%，DetA=12.02），
+> 09e 换用 09d 训练的 pedestrian 专用检测器后，CLR_Re 升至 19.66%（+2.3pp），DetA 升至 13.32，
+> 召回率提升有限，未达到预期的"大幅提升"。同时 CLR_Pr 从 56.87% 降至 54.65%（FP 从 15,043 增至 18,616），
+> MOTA 反而从 -9.52 恶化至 -12.61。说明单纯用 EXP-07 权重迁移学习微调 50 epoch，
+> 对 pedestrian 单类召回率的提升幅度不足以扭转追踪指标；检测端瓶颈依然存在，只是略有缓解。
 
 ### EXP-09f 结果（待运行）
 
@@ -407,8 +440,8 @@ cat runs/track/exp09f_ped_mctrack/eval/summary.json
 - [x] EXP-09b 完成，指标已记录（HOTA=6.12, MOTA=-9.52, IDF1=3.51）
 - [x] EXP-09c（MCTrack）完成，指标已记录（HOTA=6.02, MOTA=-15.51, IDF1=3.48）
 - [x] 对比分析已完成
-- [ ] EXP-09d（pedestrian 专用检测器训练）完成，mAP/Recall 已记录
-- [ ] EXP-09e（ped 检测器 + ByteTrack 基线）完成，指标已记录
+- [x] EXP-09d（pedestrian 专用检测器训练）完成，训练跑满 50 epoch（末轮 precision=0.570, recall=0.443, mAP50=0.472, mAP50-95=0.204；best.pt 对应轮次待确认）
+- [x] EXP-09e（ped 检测器 + ByteTrack 基线）完成，指标已记录（HOTA=6.19, MOTA=-12.61, IDF1=3.59）
 - [ ] EXP-09f（ped 检测器 + MCTrack 本文方法）完成，指标已记录
 - [ ] 09e vs 09f 公平对比分析已完成
 
