@@ -156,8 +156,13 @@ def main():
         for seq, seq_res in combined.items():
             if not isinstance(seq_res, dict):
                 continue
+            # HOTA 在 TrackEval 内部按 19 个 alpha(IoU) 阈值给出一个数组，
+            # 标准 HOTA 分数是该数组的均值，不是任意单个阈值下的取值（此前误取 [0]）。
             hota_arr = seq_res.get("HOTA", {}).get("HOTA", [0])
-            hota_val = float(hota_arr[0]) if hasattr(hota_arr, '__len__') else float(hota_arr)
+            if hasattr(hota_arr, '__len__') and len(hota_arr) > 0:
+                hota_val = float(sum(hota_arr) / len(hota_arr))
+            else:
+                hota_val = float(hota_arr)
             summary[seq] = {
                 "HOTA": round(hota_val * 100, 2),
                 "MOTA": round(float(seq_res.get("CLEAR", {}).get("MOTA", 0)) * 100, 2),
