@@ -12,7 +12,7 @@
 | 下载日期 | 2026-06-15 |
 | 许可 | 学术使用 |
 | 服务器路径 | `/root/autodl-tmp/yolov11-drone-inspection/data/visdrone-mot/` |
-| 状态 | 🔄 进行中（09a ✅ / 09b ✅ / 09c ✅ / 09d ✅ / 09e ✅ / 09f ⬜）|
+| 状态 | 🔄 进行中（09a ✅ / 09b ✅ / 09c ✅ / 09d ✅ / 09e ✅ / 09f ✅ / 09g ⬜ / 09h ⬜）|
 
 ---
 
@@ -132,6 +132,48 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 > **09e vs 09f 是论文追踪章节的核心对比**：检测器相同（09d），唯一变量是追踪器
 > （ByteTrack vs MCTrack），可以真正验证 MCTrack 的追踪创新点是否有效，
 > 不再受检测召回率差异干扰。
+
+### ⚠️ 09e/09f 结果一致的根因排查：外层 conf 阈值屏蔽了双阈值创新点
+
+09e/09f 实测结果完全一致（见下方结果），逐行 diff 确认两者轨迹分配几乎逐帧相同。
+排查发现根因**不是"追踪器天生无效"，而是配置问题**：
+
+- 09e/09f 运行时外层 `conf=0.25`（yolo track 的检测置信度硬阈值，在检测输出阶段
+  就丢弃所有低于该值的框，追踪器完全看不到）
+- `mctrack.yaml` 的 `track_high_thresh=0.15`、`track_low_thresh=0.05` 是追踪器
+  **内部**对已收到的检测框做二次分流用的阈值
+- 由于外层 `conf=0.25 > track_high_thresh=0.15`，**每一个能到达追踪器的框都已经
+  高于 0.15**，等于永远只走"高置信度"分支，`track_low_thresh=0.05` 对应的
+  遮挡恢复/二次匹配逻辑（双阈值创新点②）**从未被触发过**
+
+→ 需要用更低的外层 conf（对齐 track_low_thresh）重新对比，才能验证双阈值机制
+是否真的有效，详见 EXP-09g/09h。
+
+### EXP-09g：pedestrian 专用检测器 + ByteTrack（低 conf，激活双阈值分流对比基线）
+
+| 参数 | 值 |
+|---|---|
+| 检测器 | EXP-09d best.pt（与 09e/09f 相同） |
+| 追踪器 | ByteTrack |
+| 检测置信度阈值 | **0.05**（对齐 mctrack.yaml 的 track_low_thresh，与 09h 完全一致） |
+| 脚本 | `scripts/tracking/run_track_exp09g_ped_bytetrack_lowconf.sh` |
+| 输出目录 | `runs/track/exp09g_ped_bytetrack_lowconf/` |
+
+### EXP-09h：pedestrian 专用检测器 + YOLOv11-MCTrack（低 conf，真正激活双阈值创新点）
+
+| 参数 | 值 |
+|---|---|
+| 检测器 | EXP-09d best.pt（与 09g 相同，控制变量） |
+| 追踪器配置 | `configs/trackers/mctrack.yaml` |
+| 检测置信度阈值 | **0.05**（与 09g 完全一致，唯一变量是追踪器） |
+| 脚本 | `scripts/tracking/run_track_exp09h_ped_mctrack_lowconf.sh` |
+| 输出目录 | `runs/track/exp09h_ped_mctrack_lowconf/` |
+
+> **09g vs 09h 才是真正验证双阈值机制的公平对比**：外层 conf 降到 0.05 后，
+> 0.05~0.25 区间的检测框能真正进入追踪器内部的高/低置信度分流逻辑，
+> MCTrack 的 track_low_thresh 分支才有机会被激活。若 09h 优于 09g，
+> 证明双阈值等创新点有效；若仍然相同，则说明瓶颈确实在检测密度本身，
+> 而非本次配置问题。
 
 ---
 
@@ -277,15 +319,21 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 | 方法 | HOTA | MOTA | IDF1 | IDS | Frag |
 |---|---|---|---|---|---|
 | EXP-09a ASE + BoT-SORT（全类，conf=0.25） | 9.97 | -32.51 | 6.18 | 54,063 | 5,116 |
-| EXP-09b ASE + ByteTrack（pedestrian only，conf=0.25） | 6.12 | -9.52 | 3.51 | 15,652 | 2,277 |
-| **EXP-09c MCTrack（pedestrian only，conf=0.10，GMC+ReID）** | **6.02** | **-15.51** | **3.48** | **17,154** | **2,531** |
+| EXP-09b ASE（10类）+ ByteTrack（pedestrian only，conf=0.25） | 6.12 | -9.52 | 3.51 | 15,652 | 2,277 |
+| EXP-09c ASE（10类）+ MCTrack（pedestrian only，conf=0.10） | 6.02 | -15.51 | 3.48 | 17,154 | 2,531 |
+| EXP-09e ped专用检测器 + ByteTrack（conf=0.25） | 6.19 | -12.61 | 3.59 | 18,208 | 2,410 |
+| **EXP-09f ped专用检测器 + MCTrack（conf=0.25，同检测器公平对比）** | **6.19** | **-12.61** | **3.59** | **18,208** | **2,410** |
 
 > **说明**：
 > - 09a 全类追踪导致 FP 虚高（48,718），不具可比性，仅作为"现有方法不足"的佐证。
-> - 09b vs 09c 为公平对比（均 pedestrian only）：MCTrack 通过 conf 降低捕获更多检测，
->   但 FP 增量使 MOTA 劣于 09b；HOTA 相近（6.02 vs 6.12）。
-> - **核心发现**：追踪性能瓶颈在于 pedestrian 检测端召回不足（DetA≈12），
->   单纯调整追踪器参数收益有限；论文需重点论述检测器专项优化方向。
+> - 09b vs 09c：检测器相同但 conf 不同，非严格控制变量，差异主要来自 conf 阈值而非追踪器本身。
+> - **09e vs 09f 是严格控制变量的对比**（检测器、conf、iou 完全相同，只有追踪器不同）：
+>   两者指标完全一致，逐行 diff 证实轨迹结果几乎逐帧相同（7 序列中 3 个 0 差异，
+>   其余 4 个仅 1 行浮点舍入级差异）。
+> - **根因排查**：定位到 09e/09f 用的外层 `conf=0.25` 高于 `mctrack.yaml` 的
+>   `track_high_thresh=0.15`，导致双阈值遮挡恢复分支从未被触发——这是配置问题，
+>   不能据此判定 MCTrack 无效。**最终结论待 EXP-09g/09h（对齐 track_low_thresh 的
+>   低 conf 重新对比）验证后补充。**
 
 ### EXP-09d 结果（待运行）
 
@@ -344,7 +392,37 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 > MOTA 反而从 -9.52 恶化至 -12.61。说明单纯用 EXP-07 权重迁移学习微调 50 epoch，
 > 对 pedestrian 单类召回率的提升幅度不足以扭转追踪指标；检测端瓶颈依然存在，只是略有缓解。
 
-### EXP-09f 结果（待运行）
+### EXP-09f 结果（已完成 2026-07-09）
+
+> 评估集：VisDrone-MOT val（7 序列），pedestrian only。检测器与 09e 完全相同（EXP-09d ped 专用权重，conf=0.25），
+> 唯一变量是追踪器：09e=ByteTrack，09f=MCTrack（`configs/trackers/mctrack.yaml`，GMC+ReID+双阈值+track_buffer=60）。
+
+**逐帧结果核验（关键步骤）**：对比 09e/09f 的 `mot_results/*.txt` 逐行 diff，7 个序列中 3 个完全一致（0 行差异），
+其余 4 个序列仅有 1 行差异（bbox 宽度 62.88→62.89，浮点舍入级别，很可能是 GMC 光流估计的极小修正）。
+即：**MCTrack 与 ByteTrack 在同一检测器输入下产出的轨迹 ID 分配、轨迹数量、跨帧关联结果几乎完全相同。**
+
+**COMBINED（7 序列平均）：** 与 09e 相同（差异在 TrackEval 指标精度范围内不可分辨）
+
+| 指标 | 值 | 对比 09e |
+|---|---|---|
+| HOTA | **6.19** | 持平 |
+| MOTA | **-12.61** | 持平 |
+| IDF1 | **3.59** | 持平 |
+| ID Switch (IDS) | **18208** | 持平 |
+| Fragmentation (Frag) | **2410** | 持平 |
+| DetA | 13.32 | 持平 |
+| AssA | 3.01 | 持平 |
+| CLR_Re | 19.66% | 持平 |
+| CLR_Pr | 54.65% | 持平 |
+
+> **根因排查结果**：逐行 diff 证实两者轨迹分配几乎逐帧相同。深入检查配置后发现，
+> 09e/09f 使用的外层 `conf=0.25` 已经高于 `mctrack.yaml` 的 `track_high_thresh=0.15`，
+> 导致能到达追踪器的检测框全部被判定为"高置信度"，`track_low_thresh=0.05` 对应的
+> 双阈值遮挡恢复分支从未被触发——**这是配置问题，不是"追踪器创新点必然无效"的证据**。
+> 详见下方 EXP-09g/09h：用对齐 `track_low_thresh` 的低 conf（0.05）重新做公平对比，
+> 真正激活双阈值机制后再下结论。
+
+### EXP-09g 结果（待运行）
 
 | 指标 | 值 |
 |---|---|
@@ -354,13 +432,27 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 | ID Switch (IDS) | — |
 | Fragmentation (Frag) | — |
 | DetA | — |
-| AssA | — |
 | CLR_Re | — |
 | CLR_Pr | — |
 
-> **注**：09e vs 09f 结果出来后，直接对比 HOTA/MOTA/IDS 即可判断 MCTrack 的追踪器创新
-> （GMC/ReID/双阈值/遮挡记忆）在检测召回率提升之后是否真正带来增益。若 09f 优于 09e，
-> 则验证了创新点二的有效性；若仍未见提升，需在论文中如实讨论并转向分析检测-追踪耦合问题。
+### EXP-09h 结果（待运行）
+
+| 指标 | 值 |
+|---|---|
+| HOTA | — |
+| MOTA | — |
+| IDF1 | — |
+| ID Switch (IDS) | — |
+| Fragmentation (Frag) | — |
+| DetA | — |
+| CLR_Re | — |
+| CLR_Pr | — |
+
+> **注**：09g vs 09h 结果出来后，先做和 09e/09f 一样的逐行 diff 核验：
+> - 若两者仍然完全相同 → 说明即便激活双阈值分流，检测密度依然太低、没有可利用的
+>   低置信度候选框，瓶颈确实在检测端而非追踪器配置，此时可以确认最终结论。
+> - 若 09h 优于 09g → 说明双阈值机制在正确配置下确实有效，MCTrack 的创新点成立，
+>   之前 09e/09f 的负面结果只是配置错误导致的假阴性。
 
 ---
 
@@ -430,6 +522,31 @@ cat runs/track/exp09f_ped_mctrack/eval/summary.json
 运行开始时间：___
 运行结束时间：___
 
+### Step 7（待执行）：09g/09h 低 conf 重新对比（验证双阈值机制真实效果）
+
+```bash
+cd /root/autodl-tmp/yolov11-drone-inspection
+git pull                                            # 同步 09g/09h 脚本 + eval_trackeval.py 修复
+source venv/bin/activate
+
+# 1. ByteTrack，conf=0.05
+bash scripts/tracking/run_track_exp09g_ped_bytetrack_lowconf.sh
+
+# 2. MCTrack，conf=0.05（与 09g 唯一变量仅追踪器不同）
+bash scripts/tracking/run_track_exp09h_ped_mctrack_lowconf.sh
+
+# 3. 查看结果
+cat runs/track/exp09g_ped_bytetrack_lowconf/eval/summary.json
+cat runs/track/exp09h_ped_mctrack_lowconf/eval/summary.json
+
+# 4. 逐行核验两者是否仍然产出相同轨迹（关键：判断双阈值机制是否真的被激活并起作用）
+for seq in uav0000086_00000_v uav0000117_02622_v uav0000137_00458_v uav0000182_00000_v uav0000268_05773_v uav0000305_00000_v uav0000339_00001_v; do
+    echo "=== $seq ==="
+    diff runs/track/exp09g_ped_bytetrack_lowconf/mot_results/${seq}.txt \
+         runs/track/exp09h_ped_mctrack_lowconf/mot_results/${seq}.txt | wc -l
+done
+```
+
 ---
 
 ## 观察与结论（运行后填写）
@@ -442,8 +559,12 @@ cat runs/track/exp09f_ped_mctrack/eval/summary.json
 - [x] 对比分析已完成
 - [x] EXP-09d（pedestrian 专用检测器训练）完成，训练跑满 50 epoch（末轮 precision=0.570, recall=0.443, mAP50=0.472, mAP50-95=0.204；best.pt 对应轮次待确认）
 - [x] EXP-09e（ped 检测器 + ByteTrack 基线）完成，指标已记录（HOTA=6.19, MOTA=-12.61, IDF1=3.59）
-- [ ] EXP-09f（ped 检测器 + MCTrack 本文方法）完成，指标已记录
-- [ ] 09e vs 09f 公平对比分析已完成
+- [x] EXP-09f（ped 检测器 + MCTrack 本文方法）完成，指标已记录（与 09e 持平：HOTA=6.19, MOTA=-12.61, IDF1=3.59）
+- [x] 09e vs 09f 公平对比分析已完成——逐行 diff 证实两者轨迹结果几乎完全相同
+- [x] 根因排查：定位到外层 conf=0.25 屏蔽了 mctrack.yaml 的双阈值分支（track_high_thresh=0.15）
+- [ ] EXP-09g（ped 检测器 + ByteTrack，conf=0.05）完成，指标已记录
+- [ ] EXP-09h（ped 检测器 + MCTrack，conf=0.05，真正激活双阈值）完成，指标已记录
+- [ ] 09g vs 09h 最终对比分析已完成，MCTrack 有效性结论待此确认
 
 **初步结论**（基于 09a/09b）：
 
