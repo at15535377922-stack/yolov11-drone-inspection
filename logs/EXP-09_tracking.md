@@ -12,7 +12,7 @@
 | 下载日期 | 2026-06-15 |
 | 许可 | 学术使用 |
 | 服务器路径 | `/root/autodl-tmp/yolov11-drone-inspection/data/visdrone-mot/` |
-| 状态 | 🔄 进行中（09a~09h ✅ / 09i ⬜ 隔离验证遮挡恢复机制）|
+| 状态 | 🔄 进行中（09a~09i ✅ 已完成 / 09j~09l ⬜ 排查训练/评估域差异假设）|
 
 ---
 
@@ -335,15 +335,18 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 >   不能据此判定 MCTrack 无效。**最终结论待 EXP-09g/09h（对齐 track_low_thresh 的
 >   低 conf 重新对比）验证后补充。**
 
-### EXP-09d 结果（待运行）
+### EXP-09d 结果（已完成 2026-07-09）
+
+> 训练跑满 50 epoch（未提前停止）。以下为最后一轮（epoch 50）指标，
+> `best.pt` 对应的具体轮次未逐一核对，但训练曲线已收敛（末几轮 loss/指标波动很小）。
 
 | 指标 | 值 |
 |---|---|
-| mAP50（pedestrian） | — |
-| mAP50-95 | — |
-| Precision | — |
-| Recall | — |
-| 训练轮数（实际停止于） | — |
+| mAP50（pedestrian） | 0.472 |
+| mAP50-95 | 0.204 |
+| Precision | 0.570 |
+| Recall | 0.443 |
+| 训练轮数（实际停止于） | 50（跑满，未早停）|
 
 ### EXP-09e 结果（已完成 2026-07-09，评估脚本重跑修正后取得）
 
@@ -488,26 +491,122 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 | 脚本 | `scripts/tracking/run_track_exp09i_ped_mctrack_v2.sh` |
 | 输出目录 | `runs/track/exp09i_ped_mctrack_v2/` |
 
-### EXP-09i 结果（待运行）
+### EXP-09i 结果（已完成 2026-07-09）
 
-| 指标 | 值 | 对比 09g（ByteTrack 基线） |
+> 逐行 diff 核验：与 09g 相比，7 个序列中 3 个完全一致（0 行差异），其余 4 个仅 1 行
+> 浮点舍入级差异（与 09e/09f 的模式完全一样）——即 **09i 与 09g（ByteTrack 基线）产出的
+> 轨迹结果几乎逐帧相同**。
+
+| 指标 | 09g（ByteTrack） | 09i（MCTrack v2，仅遮挡恢复） | 差异 |
+|---|---|---|---|
+| HOTA | 6.19 | **6.19** | 无 |
+| MOTA | -12.61 | **-12.61** | 无 |
+| IDF1 | 3.59 | **3.59** | 无 |
+| IDS | 18208 | **18208** | 无 |
+| Frag | 2410 | **2410** | 无 |
+| 总检测框数 | 41,053 | 41,053 | 无 |
+
+> **三层排查后的最终结论**：
+> 1. 09e vs 09f（conf=0.25）：完全一致 → 外层 conf 屏蔽了双阈值分支（配置问题）
+> 2. 09g vs 09h（conf=0.05，双阈值真正激活）：09h 全面更差 → 差异完全来自
+>    `new_track_thresh` 放宽后引入的误检轨迹（净负收益）
+> 3. 09i（conf=0.05，去掉误开新轨迹副作用，只保留 GMC+ReID+遮挡记忆+低阈值恢复）：
+>    与 ByteTrack 基线**完全一致** → 这几个机制单独作用时，贡献为零
+>
+> 三次独立排查（每次都发现并修复了真实的配置/代码问题，而非简单归因于"追踪器无效"）
+> 得到一致结论：**在 pedestrian 检测召回率仅 19-21% 的条件下，GMC 相机运动补偿、
+> 轻量 ReID、双阈值关联、遮挡记忆扩大这四个追踪器层面的创新点，均未对
+> VisDrone-MOT 行人追踪任务产生可测量的性能提升**。唯一能让追踪结果偏离基线的配置改动
+> （放宽新建轨迹阈值）是净负收益（更多召回但精度损失更大）。此结论建立在完整的
+> 变量隔离实验基础上，而非配置错误或排查不彻底导致的假阴性。
+
+---
+
+## EXP-09j/09k/09l：VisDrone-MOT 域内检测器微调（排查训练/评估域差异假设）
+
+09e~09i 的完整追踪器消融已确认瓶颈在 pedestrian 检测召回率（CLR_Re 仅 19~21%），
+且与追踪器配置无关。唯一尚未排除的假设：EXP-09d 用 **VisDrone2019-DET（静态图像）**
+微调检测器，但评估在 **VisDrone2019-MOT（视频帧）** 上进行，两者在拍摄场景、压缩、
+运动模糊等方面可能存在域差异，导致检测器泛化不足、召回率上不去。
+
+本组实验直接用 VisDrone-MOT-train 的视频帧（而不是 DET 静态图）训练检测器，
+彻底消除训练/评估域差异，检验召回率能否进一步提升，追踪器创新点能否因此获得发挥空间。
+
+### EXP-09j：VisDrone-MOT 域内 pedestrian 检测器训练
+
+| 参数 | 值 |
+|---|---|
+| 基础权重 | EXP-09d best.pt（已是 pedestrian 专用，此步只解决域差异） |
+| 训练数据 | VisDrone2019-MOT-train 视频帧，按【序列】划分 train/val（val_seq_ratio=0.15），避免同序列相邻帧跨 train/val 造成数据泄漏 |
+| 数据构建脚本 | `scripts/dataset/build_visdrone_mot_ped_detset.py` |
+| 抽帧策略 | 每 5 帧取 1 帧（`--sample_stride 5`），减少连续帧冗余 |
+| 数据配置 | `configs/datasets/visdrone_mot_ped.yaml` |
+| 类别 | 仅 category=1（pedestrian），与 09d/TrackEval 评估口径一致 |
+| epochs | 30（二次微调，patience=15） |
+| optimizer | AdamW，lr0=5e-5（比 09d 更小，因为是在已收敛权重上继续微调） |
+| 训练脚本 | `scripts/train/run_visdrone_mot_ped_exp09j.sh` |
+| 输出目录 | `runs/detect/visdrone_mot_ped_exp09j/` |
+| **重要**：VisDrone-MOT-val（下游追踪评估用的验证集）全程不参与本次训练/验证，避免评估泄漏 |
+
+### EXP-09k：MOT 域内检测器 + ByteTrack（新基线）
+
+| 参数 | 值 |
+|---|---|
+| 检测器 | EXP-09j best.pt |
+| 追踪器 | ByteTrack |
+| 检测置信度阈值 | 0.05 |
+| 脚本 | `scripts/tracking/run_track_exp09k_motped_bytetrack.sh` |
+| 输出目录 | `runs/track/exp09k_motped_bytetrack/` |
+
+### EXP-09l：MOT 域内检测器 + YOLOv11-MCTrack（本文方法）
+
+| 参数 | 值 |
+|---|---|
+| 检测器 | EXP-09j best.pt（与 09k 相同，控制变量） |
+| 追踪器配置 | `configs/trackers/mctrack.yaml`（原始版本，含双阈值 + GMC + ReID + 遮挡记忆） |
+| 检测置信度阈值 | 0.05 |
+| 脚本 | `scripts/tracking/run_track_exp09l_motped_mctrack.sh` |
+| 输出目录 | `runs/track/exp09l_motped_mctrack/` |
+
+### EXP-09j 结果（待运行）
+
+| 指标 | 值 | 对比 09d（DET 域） |
+|---|---|---|
+| mAP50（pedestrian） | — | 0.472 |
+| mAP50-95 | — | 0.204 |
+| Precision | — | 0.570 |
+| Recall | — | 0.443 |
+
+### EXP-09k 结果（待运行）
+
+| 指标 | 值 | 对比 09g（09d 检测器 + ByteTrack） |
+|---|---|---|
+| HOTA | — | 6.19 |
+| MOTA | — | -12.61 |
+| IDF1 | — | 3.59 |
+| CLR_Re | — | 19.66% |
+| CLR_Pr | — | 54.65% |
+
+### EXP-09l 结果（待运行）
+
+| 指标 | 值 | 对比 09k（MOT 域检测器 + ByteTrack） |
 |---|---|---|
 | HOTA | — | — |
 | MOTA | — | — |
 | IDF1 | — | — |
-| ID Switch (IDS) | — | — |
-| Fragmentation (Frag) | — | — |
 | CLR_Re | — | — |
 | CLR_Pr | — | — |
 
-> **注**：这是本轮追踪实验的最后一次隔离验证。
-> - 若 09i 优于 09g（HOTA/MOTA/IDF1 提升，CLR_Pr 不明显下降）→ 证明"遮挡恢复"机制本身
->   有效，09h 的负面结果是"误开新轨迹"这个副作用掩盖了真实收益，可以在论文中呈现
->   "正确配置后 MCTrack 有效，并说明为什么 09h 的直接放宽阈值方案不可取"这个更细致、
->   更有技术深度的叙事。
-> - 若 09i 仍不如 09g → 基本可以确认，在当前检测密度和数据条件下，GMC/ReID/遮挡恢复
->   这几个机制对本任务确实没有可测量收益，瓶颈根本上在检测端，这也是一个完整、
->   诚实、有充分排查过程支撑的结论。
+> **判读方式**：
+> - 若 EXP-09j 的 mAP/Recall 相比 09d 有明显提升 → 训练/评估域差异假设成立，
+>   MOT 域内训练能改善检测端瓶颈。
+> - 若 EXP-09k 的 CLR_Re 相比 09g 明显提升 → 检测密度问题得到实质缓解。
+> - 此时再看 EXP-09l vs 09k：若 MCTrack 这次真的优于 ByteTrack，说明追踪器创新点
+>   需要更高的检测密度才能发挥（此前 09e~09i 是"巧妇难为无米之炊"）；
+>   若 09l 仍与 09k 一致或更差，则可最终确认追踪器创新点在本任务上确实无效，
+>   与检测密度高低无关，问题在关联算法设计本身。
+> - 若 EXP-09j 提升有限（mAP/Recall 与 09d 相近）→ 训练域差异不是主要原因，
+>   需要考虑更根本的模型容量/小目标检测能力问题（超出追踪章节范畴）。
 
 ---
 
@@ -621,6 +720,36 @@ for seq in uav0000086_00000_v uav0000117_02622_v uav0000137_00458_v uav0000182_0
 done
 ```
 
+### Step 9（待执行）：EXP-09j/09k/09l——VisDrone-MOT 域内检测器微调
+
+```bash
+cd /root/autodl-tmp/yolov11-drone-inspection
+git pull
+source venv/bin/activate
+
+# 1. 构建 MOT 域内 pedestrian 检测数据集 + 训练检测器
+bash scripts/train/run_visdrone_mot_ped_exp09j.sh
+
+# 2. 查看训练结果，先看 mAP/Recall 有没有相比 09d 明显提升
+cat runs/detect/visdrone_mot_ped_exp09j/results.csv | tail -5
+head -1 runs/detect/visdrone_mot_ped_exp09j/results.csv
+
+# 3. 用新检测器跑追踪基线 + 本文方法
+bash scripts/tracking/run_track_exp09k_motped_bytetrack.sh
+bash scripts/tracking/run_track_exp09l_motped_mctrack.sh
+
+# 4. 查看追踪评估结果
+cat runs/track/exp09k_motped_bytetrack/eval/summary.json
+cat runs/track/exp09l_motped_mctrack/eval/summary.json
+
+# 5. 逐行核验 09k vs 09l 是否真的产生了差异（同前几轮的核验方法）
+for seq in uav0000086_00000_v uav0000117_02622_v uav0000137_00458_v uav0000182_00000_v uav0000268_05773_v uav0000305_00000_v uav0000339_00001_v; do
+    echo "=== $seq ==="
+    diff runs/track/exp09k_motped_bytetrack/mot_results/${seq}.txt \
+         runs/track/exp09l_motped_mctrack/mot_results/${seq}.txt | wc -l
+done
+```
+
 ---
 
 ## 观察与结论（运行后填写）
@@ -639,8 +768,12 @@ done
 - [x] EXP-09g（ped 检测器 + ByteTrack，conf=0.05）完成，指标已记录（HOTA=6.19, MOTA=-12.61, IDF1=3.59）
 - [x] EXP-09h（ped 检测器 + MCTrack，conf=0.05，真正激活双阈值）完成，指标已记录（HOTA=6.08, MOTA=-18.65, IDF1=3.54，全面劣于 09g）
 - [x] 09g vs 09h 对比分析已完成：双阈值机制被激活但净效果为负（召回+1.5pp，误检+6.1pp precision 损失更大）
-- [ ] EXP-09i（MCTrack v2，new_track_thresh 调回 0.25，隔离验证遮挡恢复机制本身）完成，指标已记录
-- [ ] 09i vs 09g 最终对比完成，MCTrack 有效性最终结论待此确认
+- [x] EXP-09i（MCTrack v2，new_track_thresh 调回 0.25，隔离验证遮挡恢复机制本身）完成，与 09g 完全一致
+- [x] 09i vs 09g 最终对比完成——**结论：GMC/ReID/双阈值/遮挡记忆均无可测量收益，瓶颈在检测召回率**
+- [ ] EXP-09j（VisDrone-MOT 域内检测器训练）完成，mAP/Recall 已记录
+- [ ] EXP-09k（MOT 域内检测器 + ByteTrack）完成，指标已记录
+- [ ] EXP-09l（MOT 域内检测器 + MCTrack）完成，指标已记录
+- [ ] 09k vs 09l 最终对比完成，训练/评估域差异假设是否成立的结论已确认
 
 **初步结论**（基于 09a/09b）：
 

@@ -1,0 +1,18 @@
+# VisDrone2019-MOT-train 派生的 pedestrian 单类检测集（域内数据）
+# 用途：EXP-09j —— 排查 EXP-09d（VisDrone-DET 域训练）是否存在训练/评估域差异
+#
+# 与 configs/datasets/visdrone_ped.yaml 的区别：
+#   visdrone_ped.yaml      来自 VisDrone2019-DET（静态图像数据集）
+#   visdrone_mot_ped.yaml  来自 VisDrone2019-MOT-train（追踪任务自带的视频帧，域与
+#                          最终评估的 VisDrone-MOT val 完全一致）
+#
+# train/val 按【序列】切分（见 build_visdrone_mot_ped_detset.py），VisDrone-MOT-val
+# 全程不参与检测器训练/验证，避免与下游追踪评估产生数据泄漏。
+
+path: /root/autodl-tmp/yolov11-drone-inspection/data/VisDrone2019-MOT-ped-det
+train: images/train
+val:   images/val
+
+nc: 1
+names:
+  0: pedestrian
