@@ -12,7 +12,7 @@
 | 下载日期 | 2026-06-15 |
 | 许可 | 学术使用 |
 | 服务器路径 | `/root/autodl-tmp/yolov11-drone-inspection/data/visdrone-mot/` |
-| 状态 | 🔄 进行中（09a ✅ / 09b ✅ / 09c ✅ / 09d ✅ / 09e ✅ / 09f ✅ / 09g ⬜ / 09h ⬜）|
+| 状态 | 🔄 进行中（09a~09h ✅ / 09i ⬜ 隔离验证遮挡恢复机制）|
 
 ---
 
@@ -422,37 +422,92 @@ frame_id, target_id, bb_left, bb_top, bb_width, bb_height, score, category, trun
 > 详见下方 EXP-09g/09h：用对齐 `track_low_thresh` 的低 conf（0.05）重新做公平对比，
 > 真正激活双阈值机制后再下结论。
 
-### EXP-09g 结果（待运行）
+### EXP-09g 结果（已完成 2026-07-09）
+
+> 检测器 EXP-09d（与 09h 相同），ByteTrack，conf=0.05（对齐 track_low_thresh）。
 
 | 指标 | 值 |
 |---|---|
-| HOTA | — |
-| MOTA | — |
-| IDF1 | — |
-| ID Switch (IDS) | — |
-| Fragmentation (Frag) | — |
-| DetA | — |
-| CLR_Re | — |
-| CLR_Pr | — |
+| HOTA | **6.19** |
+| MOTA | **-12.61** |
+| IDF1 | **3.59** |
+| ID Switch (IDS) | **18208** |
+| Fragmentation (Frag) | **2410** |
+| DetA | 13.32 |
+| CLR_Re | 19.66% |
+| CLR_Pr | 54.65% |
+| 总检测框数 | 41,053 |
+| 总 ID 数 | 226 |
 
-### EXP-09h 结果（待运行）
+### EXP-09h 结果（已完成 2026-07-09）
 
-| 指标 | 值 |
+> 检测器 EXP-09d（与 09g 相同，控制变量），MCTrack（`mctrack.yaml`），conf=0.05（与 09g 一致）。
+> 逐行 diff 核验：与 09g 相比 7 个序列全部有大量差异（数百至数千行不等），
+> 确认这次双阈值/宽松新建轨迹阈值机制真正被激活，两者产出了实质不同的轨迹结果
+> （不同于此前 09e/09f 逐帧几乎完全一致的情况）。
+
+| 指标 | 值 | 对比 09g |
+|---|---|---|
+| HOTA | **6.08** | ↓ -0.11 |
+| MOTA | **-18.65** | ↓ -6.04（更差）|
+| IDF1 | **3.54** | ↓ -0.05 |
+| ID Switch (IDS) | **19830** | ↑ +1622（更差）|
+| Fragmentation (Frag) | **2652** | ↑ +242（更差）|
+| DetA | 13.70 | ↑ +0.38 |
+| CLR_Re | 21.15% | ↑ +1.5pp |
+| CLR_Pr | 48.54% | ↓ -6.1pp（更差）|
+| 总检测框数 | 49,722 | ↑ +21% |
+| 总 ID 数 | 274 | ↑ +48 |
+
+> **最终结论（双阈值机制真正激活后的公平对比）**：
+> MCTrack 的 `new_track_thresh=0.20` 比 ByteTrack 默认 `0.25` 更宽松，激活后确实多捕获了
+> 更多检测框（+21%）、召回率也略有提升（CLR_Re 19.66%→21.15%），证明双阈值/宽松新建
+> 轨迹阈值机制本身在起作用，不再是"配置屏蔽导致零差异"的假阴性。
+>
+> **但这次差异是负面的**：多捕获的检测框里混入了更多误检（CLR_Pr 从 54.65% 降至 48.54%，
+> 降幅达 6.1 个百分点），导致 MOTA、IDS、Frag、HOTA、IDF1 全面变差。即放宽阈值换来的
+> 召回率提升，被随之增加的虚警和轨迹碎片化完全抵消、甚至得不偿失。
+>
+> **技术解释**：`new_track_thresh` 放宽后，很多低置信度误检框被直接当成新目标建立轨迹
+> （而不是用来挽救已有轨迹），这些误检轨迹存活时间短、频繁产生新 ID 和碎片，
+> 拉低了整体指标。GMC/ReID 等模块本应帮助过滤这类噪声，但显然没能弥补这个副作用。
+
+### EXP-09i：MCTrack v2（隔离验证——只保留遮挡恢复能力，排除误开新轨迹副作用）
+
+09h 证实了"放宽 new_track_thresh 换召回"这条路是净负收益。但双阈值机制本来的设计意图
+是"用低置信度框挽救已有轨迹"（遮挡恢复），而不是"用低置信度框开新轨迹"。09h 里这两个
+效应被搅在一起，无法单独评价遮挡恢复能力本身的价值。09i 把 `new_track_thresh` 调回
+与 ByteTrack 默认一致的 0.25（消除误开新轨迹的副作用），只保留更低的 `track_low_thresh=0.05`
++ GMC + ReID + track_buffer=60，单独检验遮挡恢复机制本身是否有正向价值。
+
+| 参数 | 值 |
 |---|---|
-| HOTA | — |
-| MOTA | — |
-| IDF1 | — |
-| ID Switch (IDS) | — |
-| Fragmentation (Frag) | — |
-| DetA | — |
-| CLR_Re | — |
-| CLR_Pr | — |
+| 检测器 | EXP-09d best.pt（与 09g/09h 相同） |
+| 追踪器配置 | `configs/trackers/mctrack_v2_strictnew.yaml`（new_track_thresh 0.20→0.25，其余同 mctrack.yaml） |
+| 检测置信度阈值 | 0.05（与 09g/09h 一致） |
+| 脚本 | `scripts/tracking/run_track_exp09i_ped_mctrack_v2.sh` |
+| 输出目录 | `runs/track/exp09i_ped_mctrack_v2/` |
 
-> **注**：09g vs 09h 结果出来后，先做和 09e/09f 一样的逐行 diff 核验：
-> - 若两者仍然完全相同 → 说明即便激活双阈值分流，检测密度依然太低、没有可利用的
->   低置信度候选框，瓶颈确实在检测端而非追踪器配置，此时可以确认最终结论。
-> - 若 09h 优于 09g → 说明双阈值机制在正确配置下确实有效，MCTrack 的创新点成立，
->   之前 09e/09f 的负面结果只是配置错误导致的假阴性。
+### EXP-09i 结果（待运行）
+
+| 指标 | 值 | 对比 09g（ByteTrack 基线） |
+|---|---|---|
+| HOTA | — | — |
+| MOTA | — | — |
+| IDF1 | — | — |
+| ID Switch (IDS) | — | — |
+| Fragmentation (Frag) | — | — |
+| CLR_Re | — | — |
+| CLR_Pr | — | — |
+
+> **注**：这是本轮追踪实验的最后一次隔离验证。
+> - 若 09i 优于 09g（HOTA/MOTA/IDF1 提升，CLR_Pr 不明显下降）→ 证明"遮挡恢复"机制本身
+>   有效，09h 的负面结果是"误开新轨迹"这个副作用掩盖了真实收益，可以在论文中呈现
+>   "正确配置后 MCTrack 有效，并说明为什么 09h 的直接放宽阈值方案不可取"这个更细致、
+>   更有技术深度的叙事。
+> - 若 09i 仍不如 09g → 基本可以确认，在当前检测密度和数据条件下，GMC/ReID/遮挡恢复
+>   这几个机制对本任务确实没有可测量收益，瓶颈根本上在检测端，这也是一个完整、
+>   诚实、有充分排查过程支撑的结论。
 
 ---
 
@@ -547,6 +602,25 @@ for seq in uav0000086_00000_v uav0000117_02622_v uav0000137_00458_v uav0000182_0
 done
 ```
 
+### Step 8（待执行）：EXP-09i 隔离验证遮挡恢复机制
+
+```bash
+cd /root/autodl-tmp/yolov11-drone-inspection
+git pull
+source venv/bin/activate
+
+bash scripts/tracking/run_track_exp09i_ped_mctrack_v2.sh
+
+cat runs/track/exp09i_ped_mctrack_v2/eval/summary.json
+
+# 与 09g（ByteTrack 基线）逐行核验差异程度
+for seq in uav0000086_00000_v uav0000117_02622_v uav0000137_00458_v uav0000182_00000_v uav0000268_05773_v uav0000305_00000_v uav0000339_00001_v; do
+    echo "=== $seq ==="
+    diff runs/track/exp09g_ped_bytetrack_lowconf/mot_results/${seq}.txt \
+         runs/track/exp09i_ped_mctrack_v2/mot_results/${seq}.txt | wc -l
+done
+```
+
 ---
 
 ## 观察与结论（运行后填写）
@@ -562,9 +636,11 @@ done
 - [x] EXP-09f（ped 检测器 + MCTrack 本文方法）完成，指标已记录（与 09e 持平：HOTA=6.19, MOTA=-12.61, IDF1=3.59）
 - [x] 09e vs 09f 公平对比分析已完成——逐行 diff 证实两者轨迹结果几乎完全相同
 - [x] 根因排查：定位到外层 conf=0.25 屏蔽了 mctrack.yaml 的双阈值分支（track_high_thresh=0.15）
-- [ ] EXP-09g（ped 检测器 + ByteTrack，conf=0.05）完成，指标已记录
-- [ ] EXP-09h（ped 检测器 + MCTrack，conf=0.05，真正激活双阈值）完成，指标已记录
-- [ ] 09g vs 09h 最终对比分析已完成，MCTrack 有效性结论待此确认
+- [x] EXP-09g（ped 检测器 + ByteTrack，conf=0.05）完成，指标已记录（HOTA=6.19, MOTA=-12.61, IDF1=3.59）
+- [x] EXP-09h（ped 检测器 + MCTrack，conf=0.05，真正激活双阈值）完成，指标已记录（HOTA=6.08, MOTA=-18.65, IDF1=3.54，全面劣于 09g）
+- [x] 09g vs 09h 对比分析已完成：双阈值机制被激活但净效果为负（召回+1.5pp，误检+6.1pp precision 损失更大）
+- [ ] EXP-09i（MCTrack v2，new_track_thresh 调回 0.25，隔离验证遮挡恢复机制本身）完成，指标已记录
+- [ ] 09i vs 09g 最终对比完成，MCTrack 有效性最终结论待此确认
 
 **初步结论**（基于 09a/09b）：
 
